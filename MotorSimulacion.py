@@ -1,5 +1,6 @@
 from settings import Settings
 import requests
+import folium
 from utils import calcular_velocidades, calcular_posiciones, calcular_tiempos, generar_1_mensaje_de_x_ejes, componer_mensaje_circulacion
 
 
@@ -118,23 +119,32 @@ class SimuladorCirculacion():
         print('Tiempo de recorrido:  ' + str(self.settings.tiempo_recorrido) + ' segundos')
         print('Número de mensajes a enviar:  ' + str(self.settings.num_mensajes))
         print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        # print ('Velocidades')
-        # print (self.velocidades)
-        #print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        #print ('Posiciones')
-        # print (self.posiciones)
-        #print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        #print ('Tiempos')
-        # print (self.tiempos)
-        #print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        #print ('Mensajes ejes')
-        #for msg in self.lista_msgs_ejes:
-        #    print (msg)
         print ('Mensajes Circulación:')
         for msg in self.mensajes_circulacion:
             print (msg)
+        # Dibujamos mapa de la circulación
+        mapa = folium.Map((39.8000, -2.9019), zoom_start=6)
+        # Puntos de origen y destino
+        location = [self.origen.lat, self.origen.lng]
+        html =  '<b>Inicio de la circulación</b>' +\
+                '<br>Vagón: ' + self.vagon.codigo +\
+                'Longitud: ' + str(self.mensajes_circulacion[0]['lng']) +\
+                'Longitud: ' + str(self.mensajes_circulacion[0]['lng'])
+        popup = folium.Popup(html = html, max_width=150)
+        marker = folium.Marker(location = location, popup = popup, icon = folium.Icon(color="darkblue"))
+        marker.add_to(mapa)
+        location = [self.destino.lat, self.destino.lng]
+        html =  '<b>Final de la circulación</b>' +\
+                '<br>Vagón: ' + self.vagon.codigo +\
+                'Longitud: ' + str(self.mensajes_circulacion[-1]['lng']) +\
+                'Longitud: ' + str(self.mensajes_circulacion[-1]['lng'])
+        popup = folium.Popup(html = html, max_width=150)
+        marker = folium.Marker(location = location, popup = popup, icon = folium.Icon(color="darkred"))
+        marker.add_to(mapa)
 
+        return mapa
 
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 class SimuladorCambio():
