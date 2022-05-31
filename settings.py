@@ -14,16 +14,27 @@ ACC_TIPICA_EJE_Z = 5.2
 DESVIACION_TIPICA_ACELERACIONES_X = 0.05
 DESVIACION_TIPICA_ACELERACIONES_Y = 0.2
 DESVIACION_TIPICA_ACELERACIONES_Z = 1.1
+LOCAL = True
 
 class Settings ():
     ''' Está hecho con una clase para poder llevar variables de estado de un módulo a otro sin tener
         que importar un montón de parámetros y funciones. Además podemos simular tendencias como temperatura_subiendo, etc
     '''
     def __init__(self):
-        self.url_punto_red = 'https://mercave-backend.azurewebsites.net/red_ferr/puntos_red/'
-        self.url_vagon = 'https://mercave-backend.azurewebsites.net/material/vagones/'
-        self.url_eje = 'https://mercave-backend.azurewebsites.net/material/ejes/'
-        self.auth=('admintria', 'Mercave062023!')
+        
+        if LOCAL:
+            self.url_punto_red = 'http://localhost:8000/red_ferr/puntos_red/'
+            self.url_vagon = 'http://localhost:8000/material/vagones/'
+            self.url_eje = 'http://localhost:8000/material/ejes/'
+            self.url_msg_circ = 'http://localhost:8000/streaming/msg_circ'
+            self.auth=('admintria', 'admintria')
+        else:
+            self.url_punto_red = 'https://mercave-backend.azurewebsites.net/red_ferr/puntos_red/'
+            self.url_vagon = 'https://mercave-backend.azurewebsites.net/material/vagones/'
+            self.url_eje = 'https://mercave-backend.azurewebsites.net/material/ejes/'
+            self.url_msg_circ = 'https://mercave-backend.azurewebsites.net/streaming/msg_circ'
+            self.auth=('admintria', 'Mercave062023!')
+        
         self.aceleracion_eje_x = 2.1
         self.aceleracion_eje_y = 3.4
         self.aceleracion_eje_z = 5.6
