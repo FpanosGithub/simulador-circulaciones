@@ -1,184 +1,178 @@
 from settings import Settings
 import requests
 import folium
-from datetime import datetime
-import json
-from utils import calcular_velocidades, calcular_posiciones, calcular_tiempos, generar_1_mensaje_de_x_ejes, componer_mensaje_circulacion
+from datetime import datetime, timedelta
+from utils import calcular_velocidades, calcular_posiciones, calcular_tiempos, generar_1_mensaje_de_x_ejes, mensaje_cambio
 
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# Funciones Auxiliares
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# CIRCULACIÓN
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-
-
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# Clases Auxiliares
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-class PuntoRed():
-    def __init__(self, set, pk_punto_red):
-        self.valido = False
-        url = set.url_punto_red + str(pk_punto_red)
-        respuesta = requests.get(url, auth = set.auth)
-        if respuesta.status_code == requests.codes.ok:
-            r = respuesta.json()
-            self.codigo = r ['codigo']
-            self.lng = r ['lng']
-            self.lat = r ['lat']
-            self.valido = True
-
-class Vagon():
-    def __init__(self, set, pk_vagon):
-        self.valido = False
-        url = set.url_vagon + str(pk_vagon)
-        respuesta = requests.get(url, auth = set.auth)
-        if respuesta.status_code == requests.codes.ok:
-            r = respuesta.json()
-            self.id = r ['id']
-            self.codigo = r ['codigo']
-            self.valido = True
-
-class Eje():
-    def __init__(self, set, pk_eje):
-        self.valido = False
-        url = set.url_eje + str(pk_eje)
-        respuesta = requests.get(url, auth = set.auth)
-        if respuesta.status_code == requests.codes.ok:
-            r = respuesta.json()
-            self.id = r ['id']
-            self.codigo = r ['codigo']
-            self.valido = True
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# Clases Principales
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-class SimuladorCirculacion():
-    def __init__(self, vagon, lista_ejes, pk_origen, pk_destino, tiempo_recorrido, tiempo_intervalo):
+class CirculacionVagon():
+    def __init__(self, vagon, pk_origen, pk_destino, tiempo_recorrido, tiempo_intervalo):
+        # URLS y otras constantes
         self.settings = Settings()
-        self.valida = True
-        self.error = []
+        # Valores simulación
+        self.origen = pk_origen
+        self.destino = pk_destino
+        self.vagon = vagon['codigo']
+        self.ejes = vagon['ejes']
+        self.tiempo_recorrido = tiempo_recorrido
+        self.num_mensajes = int(tiempo_recorrido * 3600 / tiempo_intervalo)
+        self.posiciones = calcular_posiciones(self.num_mensajes, self.origen, self.destino)
+        self.velocidades = calcular_velocidades (self.num_mensajes)
+        self.tiempos = calcular_tiempos(self.num_mensajes, tiempo_intervalo)
         
-        #1. Chequeamos origen:
-        self.origen = PuntoRed(self.settings, pk_origen)
-        if not self.origen.valido:
-            self.valida = False
-            self.error.append('El punto de ORIGEN: {}, NO EXISTE.'.format(pk_origen))
-        #2. Chequeamos destino:
-        self.destino = PuntoRed(self.settings, pk_destino)
-        if not self.destino.valido:
-            self.valida = False
-            self.error.append('El punto de DESTINO: {}, NO EXISTE.'.format(pk_destino))
-        # 3. Cargamos info vagones
-        self.vagon = Vagon(self.settings, vagon)
-        if not self.vagon.valido:
-            self.valida = False
-            self.error.append('El vagon: {}, NO EXISTE.'.format(vagon))
-        # 4. Cargamos info ejes
-        self.ejes = []
-        for elemento in lista_ejes:
-            eje = Eje(self.settings,elemento)
-            if not eje.valido:
-                self.valida = False
-                self.error.append('El eje: {}, NO EXISTE.'.format(elemento))
-            else:
-                self.ejes.append(eje)
+        # Componentes del MENSAJE a enviar
+        # Mensajes de ejes. 
         self.lista_msgs_ejes = []
-        self.mensajes_circulacion = []
-        # 4. Pasamos el tiempo del recorrido a segundos, dividimos entre el intervalo de mensajes y nos sale el num de mensajes
-        self.settings.tiempo_intervalo = tiempo_intervalo
-        self.settings.tiempo_recorrido =  int(tiempo_recorrido * 3600)       # nº de Horas * 3600 segundos
-        self.settings.num_mensajes = int(self.settings.tiempo_recorrido / self.settings.tiempo_intervalo)
-
-    def calcular(self):
-        print ('calculando......')
-        self.posiciones = calcular_posiciones(self.settings, self.origen, self.destino)
-        self.velocidades = calcular_velocidades (self.settings)
-        self.tiempos = calcular_tiempos(self.settings)
-        for i in range(self.settings.num_mensajes + 1):
+        for i in range(self.num_mensajes + 1):
             msg_ejes = generar_1_mensaje_de_x_ejes(self.settings, self.ejes)
             self.lista_msgs_ejes.append(msg_ejes)
-        for i in range(self.settings.num_mensajes + 1):
-            mensaje_circulacion = componer_mensaje_circulacion (
-                        dt = self.tiempos[i],
-                        tipo_msg = "CIRC",
-                        vagon = self.vagon.codigo,  
-                        lng = self.posiciones[i]['lng'],
-                        lat = self.posiciones[i]['lat'],
-                        vel = self.velocidades[i],
-                        msgs_ejes = self.lista_msgs_ejes[i]
-                        )
+        
+        # Para cada posición de la circulación generamos 1 mensaje completo de la circulación y lo guardamos en mensajes_circulacion
+        self.mensajes_circulacion = []
+        for i in range(self.num_mensajes +1):
+            mensaje_circulacion = \
+                {
+                'dt': self.tiempos[i],
+                'tipo_msg': "CIRC",
+                'vagon': self.vagon,
+                'lng': self.posiciones[i]['lng'],
+                'lat': self.posiciones[i]['lat'],
+                'vel': self.velocidades[i],
+                'msgs_ejes': self.lista_msgs_ejes[i],
+                }
             self.mensajes_circulacion.append(mensaje_circulacion)
+        # Guardamos un último mensaje para que se genere una parada
+        msg_ejes = generar_1_mensaje_de_x_ejes(self.settings, self.ejes)
+        mensaje_circulacion = \
+                {
+                'dt': self.tiempos[i],
+                'tipo_msg': "CIRC",
+                'vagon': self.vagon,
+                'lng': self.posiciones[i]['lng'],
+                'lat': self.posiciones[i]['lat'],
+                'vel': 0,
+                'msgs_ejes': self.lista_msgs_ejes[i],
+                }
+        self.mensajes_circulacion.append(mensaje_circulacion)
 
-    def mostrar(self, mapa):
-        print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        print ('Desde: ' + self.origen.codigo + ': ' + str(self.origen.lng) + ', ' + str(self.origen.lat))
-        print ('Hasta: ' + self.destino.codigo + ': ' + str(self.destino.lng) + ', ' + str(self.destino.lat))
-        print('Vagon: (' + str(self.vagon.id) +')' + self.vagon.codigo)
-        texto = 'Ejes:  ' 
-        for eje in self.ejes:
-            texto = texto + '(' + str(eje.id) + ')' + eje.codigo + ', '
-        print (texto)
-        print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        print('Tiempo de recorrido:  ' + str(self.settings.tiempo_recorrido) + ' segundos')
-        print('Número de mensajes de la circulación:  ' + str(self.settings.num_mensajes))
-        print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        #for msg in self.mensajes_circulacion:
-        #    print (msg)
+    def mostrar(self, mapa):       
+        print('Tiempo de recorrido:  ' + str(self.tiempo_recorrido) + ' horas')
+        print('Número de mensajes de la circulación:  ' + str(self.num_mensajes))
+
         # Puntos de origen y destino
-        location = [self.origen.lat, self.origen.lng]
+        location = [self.origen[1], self.origen[0]]
         html =  '<b>Inicio de la circulación</b>' +\
-                '<br><b>Vagón: </b>' + self.vagon.codigo +\
-                '<br><b>Latitud: </b>' + str(round(self.mensajes_circulacion[0]['lat'],5)) +\
-                '<br><b>Longitud: </b>' + str(round(self.mensajes_circulacion[0]['lng'],5))
+                '<br><b>Vagón: </b>' + self.vagon +\
+                '<br><b>Latitud: </b>' + str(round(self.origen[1],5)) +\
+                '<br><b>Longitud: </b>' + str(round(self.origen[0],5))
         popup = folium.Popup(html = html, max_width=200)
-        marker = folium.Marker(location = location, popup = popup, icon = folium.Icon(color="darkblue"))
+        marker = folium.CircleMarker(location = location, radius = 10, popup = popup, color="green", fill = True, fill_color = "blue")
         marker.add_to(mapa)
-        location = [self.destino.lat, self.destino.lng]
+        location = [self.destino[1], self.destino[0]]
         html =  '<b>Final de la circulación</b>' +\
-                '<br><b>Vagón: </b>' + self.vagon.codigo +\
-                '<br><b>Latitud: </b>' + str(round(self.mensajes_circulacion[-1]['lat'],5)) +\
-                '<br><b>Longitud: </b>' + str(round(self.mensajes_circulacion[-1]['lng'],5))
+                '<br><b>Vagón: </b>' + self.vagon +\
+                '<br><b>Latitud: </b>' + str(round(self.destino[1],5)) +\
+                '<br><b>Longitud: </b>' + str(round(self.destino[0],5))
         popup = folium.Popup(html = html, max_width=200)
-        marker = folium.Marker(location = location, popup = popup, icon = folium.Icon(color="darkred"))
+        marker = folium.CircleMarker(location = location, radius = 10, popup = popup, color="darkred", fill = True, fill_color = "red")
         marker.add_to(mapa)
 
+        i = 0
         for msg in self.mensajes_circulacion:
-            location = [msg['lat'], msg['lng']]
-            folium.Circle(
-            radius=100,
-            location = location,
-            popup="posición",
-            color="grey",
-            fill=False,
-            ).add_to(mapa)
+            i  += 1
+            if i == 3:
+                location = [msg['lat'], msg['lng']]
+                folium.Circle(
+                radius=5000,
+                location = location,
+                popup="posición",
+                color="grey",
+                fill=False,
+                ).add_to(mapa)
+                i = 0
 
     def ejecutar_simulacion(self):
-        
-        # datetime object containing current date and time
-        #now = datetime.now() + self.mensajes_circulacion[0]['dt']
-        #dt_string = now.strftime("%Y-%m-%d %H:%M:%S")
-        #print("date and time =", dt_string)
-        #self.mensajes_circulacion[0]['dt'] = dt_string
-
-        #self.mensajes_circulacion[0]['dt'] = '2022-06-01 12:12:12'
-        
-        #data = json.dumps(self.mensajes_circulacion[0])
-        #print(data)
-
-        #respuesta = requests.post(self.settings.url_msg_circ, auth = self.settings.auth, json = self.mensajes_circulacion[0])
-        #print (respuesta.status_code)
-        #print(respuesta.url)
-        
+        print('Vagón: {}, en: {}'.format(self.vagon, datetime.now()))
+        print('url: ' + str(self.settings.url_msg_circ))
+        print('auth: ' + str(self.settings.auth))
+        print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
         for msg in self.mensajes_circulacion:
             now = datetime.now() + msg['dt']
             dt_string = now.strftime("%Y-%m-%d %H:%M:%S")
             msg['dt'] = dt_string
-            respuesta = requests.post (self.settings.url_msg_circ, auth = self.settings.auth, json = msg)
-            print (respuesta.status_code)
+            r = requests.post (self.settings.url_msg_circ, auth = self.settings.auth, json = msg)
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+class SimuladorCirculacion ():
+    def __init__(self, composicion, pk_origen, pk_destino, tiempo_recorrido, tiempo_intervalo):
+        self.composicion = composicion
+        self.origen = pk_origen
+        self.destino = pk_destino
+        self.circulaciones = []
+        for vagon in composicion:
+            ciculacion_vagon = CirculacionVagon(vagon, pk_origen, pk_destino, tiempo_recorrido, tiempo_intervalo)
+            self.circulaciones.append(ciculacion_vagon)
+
+    def mostrar(self, mapa):
+        print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+        print ('Desde: ' + str(self.origen[0]) + ', ' + str(self.origen[1]))
+        print ('Hasta: ' + str(self.destino[0]) + ', ' + str(self.destino[1]))
+        print('Vagones: ')
+        for vagon in self.composicion:
+            print(str(vagon))
+        print ('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+        self.circulaciones[0].mostrar(mapa)
+    
+    def ejecutar_simulacion(self):
+        print('Iniciando simulación de circulación en: {}'.format(datetime.now()))
+        for circulacion in self.circulaciones:
+            circulacion.ejecutar_simulacion()
+
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# CABIO DE ANCHO
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 class SimuladorCambio():
-    pass
+    def __init__(self, composicion, cambiador, sentido):
+        self.settings = Settings()
+        self.ejes = []
+        self.vagones = []
+        for vagon in composicion:
+            self.vagones.append(vagon['codigo'])
+            self.ejes.extend(vagon['ejes'])
+        # Cargamos codigo cambiador y sentido del cambio
+        self.cambiador = cambiador
+        self.sentido = sentido    
+
+        # Componentes del MENSAJE a enviar
+        # Mensajes de ejes
+        self.msgs_ejes = []
+        i = 0
+        tiempo_cambio = timedelta (seconds = 21.321)
+        # Para cada eje de la composición generamos 1 mensaje y lo guardamos en msg_ejes
+        for eje in self.ejes:
+            mensaje = mensaje_cambio(self.settings, eje)
+            inicio_cambio = datetime.now() + tiempo_cambio *i
+            mensaje['inicio'] = inicio_cambio.strftime("%Y-%m-%d %H:%M:%S")
+            self.msgs_ejes.append(mensaje)   
+            i= i+1
+        # Generamos 1 mensaje completo de la operación de cambio
+        self.mensaje_cambio = \
+            {
+            'dt': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'cambiador': self.cambiador,
+            'sentido': self.sentido,
+            'msgs_ejes': self.msgs_ejes,
+            }
+
+    def ejecutar_simulacion(self):
+        print('Iniciando simulación de operación de cambio.')
+        print('Cambiador: {} - Vagones: {}  - {}'.format(self.cambiador, self.vagones, datetime.now()))
+        print('url: ' + str(self.settings.url_msg_circ))
+        print('auth: ' + str(self.settings.auth))
+        r = requests.post (self.settings.url_cambio, auth = self.settings.auth, json = self.mensaje_cambio)
+        print(r.json)
+        print(r.status_code)
